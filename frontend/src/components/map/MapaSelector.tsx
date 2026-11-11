@@ -8,15 +8,25 @@ import type { EstadoAnio, EtapaLote } from "@/lib/progreso";
 
 export type Foco = { lat: number; lng: number; zoom: number };
 
-type ObjetosCalle = { poly: google.maps.Polygon; lineas: google.maps.Polyline[] };
+type ObjetosCalle = {
+  poly: google.maps.Polygon;
+  asfalto: google.maps.Polygon | null;
+  lineas: google.maps.Polyline[];
+};
 type ObjetosLote = {
   suelo: google.maps.Polygon;
   huella: google.maps.Polygon;
-  techoA: google.maps.Polygon;
-  techoB: google.maps.Polygon;
-  cumbrera: google.maps.Polyline;
+  techo: google.maps.Polygon;
   arboles: google.maps.Circle[];
 };
+
+// Colores del techo terminado: [gris, azul, teja, gris oscuro] x [fila hacia la calle de abajo, de arriba]
+const COLORES_TECHO: [string, string][] = [
+  ["#d4d7dc", "#bcc1c8"],
+  ["#7fa7d9", "#6a93c7"],
+  ["#d9573f", "#c04a33"],
+  ["#80868e", "#6d737b"],
+];
 
 type CapaProps = {
   foco: Foco;
@@ -119,6 +129,18 @@ function Capa({ foco, puntos, loteo, etapas, estado, ladoVia }: CapaProps) {
         clickable: false,
         zIndex: 2,
       }),
+      asfalto: c.asfalto
+        ? new google.maps.Polygon({
+            map,
+            paths: c.asfalto,
+            strokeWeight: 0,
+            fillColor: "#4b5563",
+            fillOpacity: 0.96,
+            clickable: false,
+            visible: false,
+            zIndex: 3,
+          })
+        : null,
       lineas: c.ejes.map(
         (eje) =>
           new google.maps.Polyline({
@@ -127,7 +149,7 @@ function Capa({ foco, puntos, loteo, etapas, estado, ladoVia }: CapaProps) {
             strokeOpacity: 0,
             clickable: false,
             visible: false,
-            zIndex: 3,
+            zIndex: 4,
             icons: [
               {
                 icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: "#fef3c7", scale: 2 },
@@ -142,6 +164,7 @@ function Capa({ foco, puntos, loteo, etapas, estado, ladoVia }: CapaProps) {
     return () => {
       objs.forEach((o) => {
         o.poly.setMap(null);
+        o.asfalto?.setMap(null);
         o.lineas.forEach((l) => l.setMap(null));
       });
       callesRef.current = [];
@@ -151,11 +174,15 @@ function Capa({ foco, puntos, loteo, etapas, estado, ladoVia }: CapaProps) {
   // Calles: tierra o asfalto según el año
   useEffect(() => {
     callesRef.current.forEach((o) => {
-      o.poly.setOptions(
-        pavimentada
-          ? { fillColor: "#4b5563", fillOpacity: 0.92, strokeColor: "#d1d5db", strokeOpacity: 0.9, strokeWeight: 1 }
-          : { fillColor: "#b8956a", fillOpacity: 0.35, strokeWeight: 0 }
-      );
+      if (!pavimentada) {
+        o.poly.setOptions({ fillColor: "#b8956a", fillOpacity: 0.35, strokeWeight: 0 });
+      } else if (o.asfalto) {
+        // andenes de concreto a los lados y calzada de asfalto en el centro
+        o.poly.setOptions({ fillColor: "#cbd5e1", fillOpacity: 0.92, strokeColor: "#94a3b8", strokeOpacity: 0.9, strokeWeight: 1 });
+      } else {
+        o.poly.setOptions({ fillColor: "#4b5563", fillOpacity: 0.92, strokeColor: "#d1d5db", strokeOpacity: 0.9, strokeWeight: 1 });
+      }
+      o.asfalto?.setVisible(pavimentada);
       o.lineas.forEach((l) => l.setVisible(pavimentada));
     });
   }, [map, loteo, pavimentada]);
@@ -186,38 +213,17 @@ function Capa({ foco, puntos, loteo, etapas, estado, ladoVia }: CapaProps) {
         visible: false,
         zIndex: 4,
       }),
-      techoA: new google.maps.Polygon({
+            techo: new google.maps.Polygon({
         map,
-        paths: l.techoA,
-        strokeColor: "#7f1d1d",
-        strokeOpacity: 0.6,
+        paths: l.techo,
+        strokeColor: "#6b7280",
+        strokeOpacity: 0.75,
         strokeWeight: 1,
-        fillColor: "#d9573f",
-        fillOpacity: 0.95,
+        fillColor: COLORES_TECHO[l.tono][l.lado === "bajo" ? 0 : 1],
+        fillOpacity: 0.97,
         clickable: false,
         visible: false,
         zIndex: 5,
-      }),
-      techoB: new google.maps.Polygon({
-        map,
-        paths: l.techoB,
-        strokeColor: "#7f1d1d",
-        strokeOpacity: 0.6,
-        strokeWeight: 1,
-        fillColor: "#a63a2a",
-        fillOpacity: 0.95,
-        clickable: false,
-        visible: false,
-        zIndex: 5,
-      }),
-      cumbrera: new google.maps.Polyline({
-        map,
-        path: l.cumbrera,
-        strokeColor: "#7f1d1d",
-        strokeWeight: 2,
-        clickable: false,
-        visible: false,
-        zIndex: 6,
       }),
       arboles:
         l.tipo === "verde"
@@ -243,9 +249,7 @@ function Capa({ foco, puntos, loteo, etapas, estado, ladoVia }: CapaProps) {
       objs.forEach((o) => {
         o.suelo.setMap(null);
         o.huella.setMap(null);
-        o.techoA.setMap(null);
-        o.techoB.setMap(null);
-        o.cumbrera.setMap(null);
+        o.techo.setMap(null);
         o.arboles.forEach((c) => c.setMap(null));
       });
       lotesRef.current = [];
@@ -277,19 +281,16 @@ function Capa({ foco, puntos, loteo, etapas, estado, ladoVia }: CapaProps) {
       else if (etapa === "estructura") o.huella.setOptions({ visible: true, fillColor: "#c2763b", strokeColor: "#7c2d12" });
       else o.huella.setOptions({ visible: true, fillColor: "#e5e7eb", strokeColor: "#374151" });
 
-      const casa = etapa === "casa";
-      o.techoA.setVisible(casa);
-      o.techoB.setVisible(casa);
-      o.cumbrera.setVisible(casa);
+      o.techo.setVisible(etapa === "casa");
     });
   }, [map, loteo, etapas, parque]);
 
   return null;
 }
 
-type Props = CapaProps & { onClickMapa: (p: Punto) => void };
+type Props = CapaProps & { onClickMapa: (p: Punto) => void; soloLectura?: boolean };
 
-export default function MapaSelector({ onClickMapa, ...capa }: Props) {
+export default function MapaSelector({ onClickMapa, soloLectura, ...capa }: Props) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
   if (!apiKey) {
@@ -309,10 +310,10 @@ export default function MapaSelector({ onClickMapa, ...capa }: Props) {
         mapTypeId="hybrid"
         gestureHandling="greedy"
         disableDoubleClickZoom
-        draggableCursor="crosshair"
+        draggableCursor={soloLectura ? undefined : "crosshair"}
         onClick={(e) => {
           const ll = e.detail.latLng;
-          if (ll) onClickMapa({ lat: ll.lat, lng: ll.lng });
+          if (ll && !soloLectura) onClickMapa({ lat: ll.lat, lng: ll.lng });
         }}
       >
         <Capa {...capa} />

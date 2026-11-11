@@ -1,6 +1,6 @@
 "use client";
-import { useMemo, useState } from "react";
-import { MapPin, Undo2, Trash2, LocateFixed, ZoomIn } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { MapPin, Undo2, Trash2, LocateFixed, ZoomIn, X, Info } from "lucide-react";
 import MapaSelector, { Foco } from "@/components/map/MapaSelector";
 import ControlesTimeLapse from "@/components/terreno/ControlesTimeLapse";
 import PanelProgreso from "@/components/terreno/PanelProgreso";
@@ -9,28 +9,19 @@ import {
   areaM2, perimetroM, dentroDelRadio, parsearCoordenadas, distanciaM,
 } from "@/lib/geo";
 import { poblacionEn, tasaCrecimiento, FUENTE_POBLACION } from "@/data/poblacion";
-import { generarLoteo, ParametrosLoteo } from "@/lib/lotes";
-import { Escenario } from "@/types";
-import {
-  simularProgreso, etapasLotes, conteoLotes,
-  HITOS_POR_DEFECTO, PARAMS_PROGRESO, EtapaLote, Hito, ParametrosProgreso,
-} from "@/lib/progreso";
+import type { ParametrosLoteo } from "@/lib/lotes";
+import { ANIO_BASE } from "@/lib/progreso";
+import { useEstudio, focoDePuntos } from "@/lib/estudio-contexto";
 
 const input =
   "w-full rounded-lg border px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500";
 const num = (n: number, d = 0) =>
   new Intl.NumberFormat("es-CO", { maximumFractionDigits: d }).format(n);
 
-const SIN_ETAPAS: EtapaLote[] = [];
-
-const PARAMS_INICIALES: ParametrosLoteo = {
-  frente: 6,
-  fondo: 14,
-  anchoVia: 8,
-  anchoViaExistente: 10,
-  cesionVerdePct: 10,
-  ladoVia: 0,
-};
+const copCorto = (n: number) =>
+  n >= 1e9 ? `$${num(n / 1e9, 2)} mil millones` : n >= 1e6 ? `$${num(n / 1e6, 1)} M` : `$${num(n)}`;
+const rango = (a: number, b: number) =>
+  Math.abs(a - b) < 0.05 ? num(a, 2) : `${num(a, 2)}–${num(b, 2)}`;
 
 function Campo({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -59,16 +50,25 @@ function Leyenda({ color, texto }: { color: string; texto: string }) {
 }
 
 export default function EstudioTerreno() {
+  // El estudio (terreno, medidas, escenario, año...) vive en el contexto compartido
+  const {
+    puntos, setPuntos, params, setParams, anio, setAnio, escenario, setEscenario,
+    pp, setPp, hitos, setHitos, hidratado, loteo, series, estado, etapas, conteo,
+  } = useEstudio();
+
   const [texto, setTexto] = useState("");
   const [foco, setFoco] = useState<Foco>({ ...CENTRO_AGUACHICA, zoom: 13 });
-  const [puntos, setPuntos] = useState<Punto[]>([]);
   const [aviso, setAviso] = useState("");
-  const [params, setParams] = useState<ParametrosLoteo>(PARAMS_INICIALES);
+  const [verResumen, setVerResumen] = useState(true);
 
-  const [anio, setAnio] = useState(0);
-  const [escenario, setEscenario] = useState<Escenario>("base");
-  const [pp, setPp] = useState<ParametrosProgreso>(PARAMS_PROGRESO);
-  const [hitos, setHitos] = useState<Record<Escenario, Hito>>(HITOS_POR_DEFECTO);
+  // Al volver a esta página con un terreno guardado, el mapa se centra en él
+  const enfoqueInicial = useRef(false);
+  useEffect(() => {
+    if (!hidratado || enfoqueInicial.current) return;
+    enfoqueInicial.current = true;
+    const f = focoDePuntos(puntos);
+    if (f) setFoco(f);
+  }, [hidratado, puntos]);
 
   const setP = (k: keyof ParametrosLoteo, v: number) =>
     setParams((p) => ({ ...p, [k]: Number.isFinite(v) ? v : 0 }));
@@ -99,37 +99,10 @@ export default function EstudioTerreno() {
     setPuntos((prev) => [...prev, p]);
   };
 
-  // Centra el mapa en el terreno con un zoom que lo deje a buen tamaño
   const acercar = () => {
-    if (puntos.length < 3) return;
-    const lats = puntos.map((q) => q.lat);
-    const lngs = puntos.map((q) => q.lng);
-    const lat = (Math.min(...lats) + Math.max(...lats)) / 2;
-    const lng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
-    const cos = Math.cos((lat * Math.PI) / 180);
-    const spanLat = (Math.max(...lats) - Math.min(...lats)) * 111320;
-    const spanLng = (Math.max(...lngs) - Math.min(...lngs)) * 111320 * cos;
-    const span = Math.max(spanLat, spanLng, 30);
-    const zoom = Math.floor(Math.log2((156543.03 * cos * 450) / span));
-    setFoco({ lat, lng, zoom: Math.min(20, Math.max(15, zoom)) });
+    const f = focoDePuntos(puntos);
+    if (f) setFoco(f);
   };
-
-  const loteo = useMemo(() => generarLoteo(puntos, params), [puntos, params]);
-
-  const series = useMemo(
-    () => ({
-      pesimista: simularProgreso(pp, hitos.pesimista),
-      base: simularProgreso(pp, hitos.base),
-      optimista: simularProgreso(pp, hitos.optimista),
-    }),
-    [pp, hitos]
-  );
-  const estado = series[escenario][anio];
-  const etapas = useMemo(
-    () => (loteo ? etapasLotes(loteo.lotes, estado) : SIN_ETAPAS),
-    [loteo, estado]
-  );
-  const conteo = loteo ? conteoLotes(loteo.lotes, etapas) : null;
 
   const area = areaM2(puntos);
   const perimetro = perimetroM(puntos);
@@ -161,7 +134,7 @@ export default function EstudioTerreno() {
 
         {aviso && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{aviso}</p>}
 
-        <div className="h-[560px] overflow-hidden rounded-xl border shadow-sm">
+        <div className="relative h-[560px] overflow-hidden rounded-xl border shadow-sm">
           <MapaSelector
             foco={foco}
             puntos={puntos}
@@ -171,6 +144,42 @@ export default function EstudioTerreno() {
             ladoVia={ladoSel}
             onClickMapa={agregarPunto}
           />
+
+          {loteo && conteo && loteo.nLotes + loteo.nVerdes > 0 &&
+            (verResumen ? (
+              <div className="absolute bottom-8 left-3 z-10 w-64 rounded-lg bg-white/95 p-3 text-xs shadow-lg">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="font-semibold text-slate-800">Resumen del loteo</p>
+                  <button
+                    title="Ocultar resumen"
+                    onClick={() => setVerResumen(false)}
+                    className="text-slate-400 hover:text-slate-700"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                <dl className="space-y-1">
+                  <Fila k="Lotes vendibles" v={num(loteo.nLotes)} destacado />
+                  <Fila k="Zonas verdes" v={`${loteo.nVerdes} lotes`} />
+                  <Fila k="Medidas (frente × fondo)" v={`${rango(loteo.anchoMin, loteo.anchoMax)} × ${rango(loteo.largoMin, loteo.largoMax)} m`} />
+                  <Fila k="Área por lote" v={`${num(loteo.areaPromedio)} m²`} />
+                  <Fila k="Valor por lote hoy" v={copCorto(pp.valorInicial * loteo.areaPromedio)} />
+                  <Fila k={`Valor por lote en ${ANIO_BASE + anio}`} v={copCorto(estado.valorM2 * loteo.areaPromedio)} destacado />
+                  <Fila k={`Valor de todos los lotes (${ANIO_BASE + anio})`} v={copCorto(estado.valorM2 * loteo.areaVendible)} />
+                  <Fila k="Casas construidas" v={`${conteo.casas} / ${conteo.total}`} />
+                </dl>
+                <p className="mt-2 text-[10px] leading-snug text-slate-500">
+                  Valor del suelo según el modelo (supuestos). No incluye la construcción.
+                </p>
+              </div>
+            ) : (
+              <button
+                onClick={() => setVerResumen(true)}
+                className="absolute bottom-8 left-3 z-10 flex items-center gap-1 rounded-lg bg-white/95 px-3 py-2 text-xs font-medium text-slate-700 shadow-lg hover:bg-white"
+              >
+                <Info size={14} /> Resumen
+              </button>
+            ))}
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
@@ -178,7 +187,7 @@ export default function EstudioTerreno() {
           <Leyenda color="#e2e8f0" texto="Lote vacío" />
           <Leyenda color="#9ca3af" texto="Cimentación" />
           <Leyenda color="#c2763b" texto="Estructura" />
-          <Leyenda color="#d9573f" texto="Casa terminada" />
+          <Leyenda color="#d4d7dc" texto="Casa terminada" />
           <Leyenda color="#4ade80" texto="Parque" />
           <Leyenda color="#b8956a" texto="Vía sin pavimentar" />
           <Leyenda color="#4b5563" texto="Vía pavimentada" />
@@ -261,11 +270,11 @@ export default function EstudioTerreno() {
             Valores de ejemplo. Reemplazar con la norma del POT de Aguachica (certificado de uso del suelo).
           </p>
           <div className="grid grid-cols-2 gap-3">
-            <Campo label="Frente del lote (m)">
+            <Campo label="Frente mínimo (m)">
               <input type="number" min={1} step="0.5" className={input} value={params.frente}
                 onChange={(e) => setP("frente", Number(e.target.value))} />
             </Campo>
-            <Campo label="Fondo del lote (m)">
+            <Campo label="Fondo mínimo (m)">
               <input type="number" min={1} step="0.5" className={input} value={params.fondo}
                 onChange={(e) => setP("fondo", Number(e.target.value))} />
             </Campo>
@@ -281,10 +290,26 @@ export default function EstudioTerreno() {
               <input type="number" min={0} max={100} step="1" className={input} value={params.cesionVerdePct}
                 onChange={(e) => setP("cesionVerdePct", Number(e.target.value))} />
             </Campo>
+            <Campo label="Lotes por manzana (0 = sin transversales)">
+              <input type="number" min={0} step="1" className={input} value={params.lotesPorManzana}
+                onChange={(e) => setP("lotesPorManzana", Number(e.target.value))} />
+            </Campo>
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            Área de cada lote: {num(params.frente * params.fondo)} m²
+            Área mínima de cada lote: {num(params.frente * params.fondo)} m²
           </p>
+          <label className="mt-3 flex items-start gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={params.ajustar}
+              onChange={(e) => setParams((p) => ({ ...p, ajustar: e.target.checked }))}
+            />
+            <span>
+              Ajustar medidas para llenar el terreno sin sobrantes
+              <span className="block text-xs text-slate-500">Los lotes se estiran hasta un 20 % sobre el mínimo.</span>
+            </span>
+          </label>
 
           {n >= 3 && (
             <div className="mt-3">
