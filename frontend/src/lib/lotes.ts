@@ -6,9 +6,12 @@ export type ParametrosLoteo = {
   anchoVia: number; // m, vías internas
   anchoViaExistente: number; // m, vía a la que da el terreno
   cesionVerdePct: number; // % del área bruta
-  ladoVia: number; // índice del lado que da a la vía existente
+  ladoVia: number; // lado principal con calle (se usa si no se marcó ninguno en callesExistentes)
+  callesExistentes?: boolean[]; // por lado del terreno: true si ahí ya existe una calle
+  proporcionar?: boolean; // lotes más anchos y menos profundos con el mismo área mínima (por defecto sí)
   ajustar: boolean; // estira los lotes para llenar el terreno sin sobrantes
   lotesPorManzana: number; // máximo de lotes seguidos antes de una calle transversal (0 = sin transversales)
+  optimizar?: boolean; // prueba todas las orientaciones y elige la que da más lotes (por defecto sí)
 };
 
 export type LoteGen = {
@@ -39,6 +42,11 @@ export type ResultadoLoteo = {
   nLotes: number;
   nVerdes: number;
   nManzanas: number;
+  ladoFilas: number; // lado del terreno con el que se alinean las filas de lotes
+  proporcional: boolean; // true si los lotes se hicieron más anchos y menos profundos para sacar más
+  extremos: number; // puntas de calles nuevas que llegan al borde del terreno
+  conectados: number; // de esas puntas, cuántas llegan a una calle que ya existe
+  lotesSiParalelaVia: number; // lotes que saldrían con las filas paralelas a la vía
   areaBruta: number;
   areaVendible: number;
   areaVerde: number;
@@ -59,7 +67,7 @@ const R = 6371008.8;
 const rad = (g: number) => (g * Math.PI) / 180;
 const MAX_LOTES = 4000;
 const TOL = 0.05; // m de holgura al comparar contra los límites del terreno
-const EXTENSION_VIA = 15; // m que se prolonga la vía existente a cada lado
+const LIMITE_PROPORCIONAR_M2 = 20000; // en terrenos más grandes no se prueban lotes proporcionales
 const ANDEN = 1.2; // m de andén a cada lado de la calzada
 const ESTIRAR_MAX = 1.2; // un lote no se estira más de un 20 %
 
@@ -179,7 +187,7 @@ function azar(n: number): number {
   return ((x >>> 0) % 1000) / 1000;
 }
 
-export function generarLoteo(pts: Punto[], p: ParametrosLoteo): ResultadoLoteo | null {
+function construirLoteo(pts: Punto[], p: ParametrosLoteo, ladoFilas: number): ResultadoLoteo | null {
   if (pts.length < 3) return null;
   if (!(p.frente > 0) || !(p.fondo > 0) || p.anchoVia < 0 || p.anchoViaExistente < 0 || p.cesionVerdePct < 0) {
     return null;
@@ -197,13 +205,12 @@ export function generarLoteo(pts: Punto[], p: ParametrosLoteo): ResultadoLoteo |
 
   const m = pts.map(aMetros);
   const n = m.length;
-  const i = ((p.ladoVia % n) + n) % n;
+  const i = ((ladoFilas % n) + n) % n;
   const a = m[i];
   const b = m[(i + 1) % n];
   const ang = Math.atan2(b.y - a.y, b.x - a.x);
   const cosA = Math.cos(ang);
   const sinA = Math.sin(ang);
-  const largoLado = Math.hypot(b.x - a.x, b.y - a.y);
 
   // Sistema local: el lado de la vía queda sobre y = 0 y el terreno hacia y > 0
   const rot = (q: XY): XY => ({
@@ -368,19 +375,46 @@ export function generarLoteo(pts: Punto[], p: ParametrosLoteo): ResultadoLoteo |
   // --- Calles (calzada + andenes) ---
   const calles: Calle[] = [];
 
+  // Lados del terreno que ya tienen calle
+  const principal = ((p.ladoVia % n) + n) % n;
+  const hayCalle = (k: number) => (p.callesExistentes ? !!p.callesExistentes[((k % n) + n) % n] : ((k % n) + n) % n === principal);
+  const ladosCalle: number[] = [];
+  for (let k = 0; k < n; k++) if (hayCalle(k)) ladosCalle.push(k);
+
   if (p.anchoViaExistente > 0) {
+    const cx = m.reduce((acc, q) => acc + q.x, 0) / n;
+    const cy = m.reduce((acc, q) => acc + q.y, 0) / n;
     const w = p.anchoViaExistente;
-    const x0 = -EXTENSION_VIA;
-    const x1 = largoLado + EXTENSION_VIA;
-    calles.push({
-      tipo: "existente",
-      coords: [{ x: x0, y: 0 }, { x: x1, y: 0 }, { x: x1, y: -w }, { x: x0, y: -w }].map(aP),
-      asfalto:
-        w >= 5
-          ? [{ x: x0, y: -ANDEN }, { x: x1, y: -ANDEN }, { x: x1, y: -(w - ANDEN) }, { x: x0, y: -(w - ANDEN) }].map(aP)
-          : null,
-      ejes: [[{ x: x0, y: -w / 2 }, { x: x1, y: -w / 2 }].map(aP)],
-    });
+    for (const k of ladosCalle) {
+      const ra = m[k];
+      const rb = m[(k + 1) % n];
+      const L = Math.hypot(rb.x - ra.x, rb.y - ra.y);
+      if (L <= 0) continue;
+      const ux = (rb.x - ra.x) / L;
+      const uy = (rb.y - ra.y) / L;
+      let nx = -uy;
+      let ny = ux;
+      if ((cx - ra.x) * nx + (cy - ra.y) * ny > 0) {
+        nx = -nx; // la normal debe apuntar hacia afuera del terreno
+        ny = -ny;
+      }
+      const punto = (t: number, dist: number): XY => ({
+        x: ra.x + ux * t + nx * dist,
+        y: ra.y + uy * t + ny * dist,
+      });
+      // la franja no se pasa de las esquinas; solo cierra la esquina cuando el lado anterior también es calle
+      const t0 = hayCalle(k - 1) ? -w : 0;
+      const t1 = L;
+      calles.push({
+        tipo: "existente",
+        coords: [punto(t0, 0), punto(t1, 0), punto(t1, w), punto(t0, w)].map(aLatLng),
+        asfalto:
+          w >= 5
+            ? [punto(t0, ANDEN), punto(t1, ANDEN), punto(t1, w - ANDEN), punto(t0, w - ANDEN)].map(aLatLng)
+            : null,
+        ejes: [[punto(t0, w / 2), punto(t1, w / 2)].map(aLatLng)],
+      });
+    }
   }
 
   const callesY: [number, number][] = []; // intervalos de las calles horizontales dibujadas
@@ -429,6 +463,29 @@ export function generarLoteo(pts: Punto[], p: ParametrosLoteo): ResultadoLoteo |
     }
   }
 
+  // ¿Las puntas de las calles nuevas que llegan al borde del terreno desembocan en una calle existente?
+  const distSeg = (q: XY, a1: XY, b1: XY) => {
+    const dx = b1.x - a1.x;
+    const dy = b1.y - a1.y;
+    const l2 = dx * dx + dy * dy;
+    const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((q.x - a1.x) * dx + (q.y - a1.y) * dy) / l2));
+    return Math.hypot(q.x - (a1.x + t * dx), q.y - (a1.y + t * dy));
+  };
+  let extremos = 0;
+  let conectados = 0;
+  for (const c of calles) {
+    if (c.tipo !== "interna") continue;
+    for (const eje of c.ejes) {
+      for (const q of [eje[0], eje[eje.length - 1]]) {
+        const xy = aMetros(q);
+        const enBorde = m.some((_, k) => distSeg(xy, m[k], m[(k + 1) % n]) <= 1);
+        if (!enBorde) continue;
+        extremos++;
+        if (ladosCalle.some((k) => distSeg(xy, m[k], m[(k + 1) % n]) <= 3)) conectados++;
+      }
+    }
+  }
+
   const vendibles = lotes.filter((l) => l.tipo === "lote");
   const nVerdes = lotes.length - vendibles.length;
   const nLotes = vendibles.length;
@@ -441,6 +498,11 @@ export function generarLoteo(pts: Punto[], p: ParametrosLoteo): ResultadoLoteo |
     nLotes,
     nVerdes,
     nManzanas,
+    ladoFilas: i,
+    proporcional: false,
+    extremos,
+    conectados,
+    lotesSiParalelaVia: nLotes,
     areaBruta,
     areaVendible,
     areaVerde,
@@ -454,4 +516,43 @@ export function generarLoteo(pts: Punto[], p: ParametrosLoteo): ResultadoLoteo |
     largoMax: nLotes ? Math.max(...vendibles.map((l) => l.largoM)) : 0,
     areaPromedio: nLotes ? areaVendible / nLotes : 0,
   };
+}
+
+// Distribución que maximiza los lotes. Prueba (1) alinear las filas con cada lado del terreno y
+// (2) lotes más anchos y menos profundos (hasta 30 % menos fondo) que conservan el área mínima
+// (frente × fondo). Se queda con la que da más lotes vendibles; si empatan, la que llega a más calles
+// existentes y, después, la de mejor aprovechamiento.
+export function generarLoteo(pts: Punto[], p: ParametrosLoteo): ResultadoLoteo | null {
+  if (pts.length < 3) return null;
+  const n = pts.length;
+  const iv = ((p.ladoVia % n) + n) % n;
+  const base = construirLoteo(pts, p, iv);
+  if (!base) return null;
+
+  const optimizar = p.optimizar !== false;
+  const proporcionar = p.proporcionar !== false && base.areaBruta <= LIMITE_PROPORCIONAR_M2;
+  if (!optimizar && !proporcionar) return base;
+
+  const mejorQue = (a: ResultadoLoteo, b: ResultadoLoteo) =>
+    a.nLotes > b.nLotes ||
+    (a.nLotes === b.nLotes &&
+      (a.conectados > b.conectados || (a.conectados === b.conectados && a.eficiencia > b.eficiencia + 0.5)));
+
+  const fondos = proporcionar ? Array.from({ length: 7 }, (_, j) => p.fondo * (1 - 0.05 * j)) : [p.fondo];
+  const lados = optimizar ? Array.from({ length: n }, (_, k) => k) : [iv];
+
+  let mejor = base;
+  for (const k of lados) {
+    for (const h of fondos) {
+      if (k === iv && h === p.fondo) continue;
+      const q: ParametrosLoteo =
+        h === p.fondo ? p : { ...p, fondo: h, frente: Math.max(p.frente, (p.frente * p.fondo) / h) };
+      const r = construirLoteo(pts, q, k);
+      if (!r) continue;
+      r.proporcional = h < p.fondo - 1e-9;
+      if (mejorQue(r, mejor)) mejor = r;
+    }
+  }
+  mejor.lotesSiParalelaVia = base.nLotes;
+  return mejor;
 }

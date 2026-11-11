@@ -1,9 +1,13 @@
+import Logo from "@/components/layout/Logo";
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
       <div className="hidden flex-col justify-between bg-[#0f1b2d] p-10 text-white lg:flex">
         <div>
-          <h1 className="text-3xl font-bold">TerraSim</h1>
+        <div>
+          <Logo variante="completo" size={420} />
+          <p className="mt-3 text-sm text-slate-400">Simulador de acceso a terrenos</p>
+        </div>
           <p className="text-sm text-slate-400">Simulador de acceso a terrenos</p>
         </div>
         <div>

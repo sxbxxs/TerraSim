@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MapPin, Undo2, Trash2, LocateFixed, ZoomIn, X, Info } from "lucide-react";
 import MapaSelector, { Foco } from "@/components/map/MapaSelector";
 import ControlesTimeLapse from "@/components/terreno/ControlesTimeLapse";
@@ -12,6 +12,11 @@ import { poblacionEn, tasaCrecimiento, FUENTE_POBLACION } from "@/data/poblacion
 import type { ParametrosLoteo } from "@/lib/lotes";
 import { ANIO_BASE } from "@/lib/progreso";
 import { useEstudio, focoDePuntos } from "@/lib/estudio-contexto";
+import CallesExistentes from "@/components/terreno/CallesExistentes";
+import PanelSismo from "@/components/terreno/PanelSismo";
+import { useSismo } from "@/components/terreno/useSismo";
+import { useFinanzasGuardadas } from "@/lib/finanzas-guardadas";
+import { detalleLote } from "@/lib/detalle-lote";
 
 const input =
   "w-full rounded-lg border px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500";
@@ -113,6 +118,35 @@ export default function EstudioTerreno() {
   const n = puntos.length;
   const ladoSel = n >= 3 ? params.ladoVia % n : 0;
 
+  // Lados del terreno que ya tienen calle
+  const ladosCalle = puntos.flatMap((_, k) =>
+    (params.callesExistentes ? !!params.callesExistentes[k] : k === ladoSel) ? [k] : []
+  );
+
+  // Lo que se ve al pasar el cursor sobre un lote
+  const fin = useFinanzasGuardadas();
+    const sismo = useSismo({
+    loteo, series, escenario, anio, pp, fin,
+    anchoCalle: params.anchoVia || params.anchoViaExistente || 8,
+  });
+  const detalle = useCallback(
+    (i: number) => {
+      if (!loteo) return null;
+      const lote = loteo.lotes[i];
+      if (!lote) return null;
+      let k = -1;
+      if (lote.tipo === "lote") {
+        k = 0;
+        for (let j = 0; j < i; j++) if (loteo.lotes[j].tipo === "lote") k++;
+      }
+      return detalleLote({
+        lote, k, nVendibles: loteo.nLotes, etapa: etapas[i] ?? "vacio", danio: sismo.danos ? sismo.danos[i] : null, fin,
+        valorM2: estado.valorM2, valorM2Inicial: pp.valorInicial, anioCalendario: ANIO_BASE + anio, anio,
+      });
+    },
+    [loteo, etapas, fin, sismo.danos, estado.valorM2, pp.valorInicial, anio]
+  );  
+
   return (
     <div className="grid gap-6 xl:grid-cols-3">
       <div className="space-y-4 xl:col-span-2">
@@ -142,6 +176,10 @@ export default function EstudioTerreno() {
             etapas={etapas}
             estado={estado}
             ladoVia={ladoSel}
+            ladosCalle={ladosCalle}
+            detalle={detalle}
+            danos={sismo.danos}
+            grietas={sismo.grietas}
             onClickMapa={agregarPunto}
           />
 
@@ -188,6 +226,8 @@ export default function EstudioTerreno() {
           <Leyenda color="#9ca3af" texto="Cimentación" />
           <Leyenda color="#c2763b" texto="Estructura" />
           <Leyenda color="#d4d7dc" texto="Casa terminada" />
+          <Leyenda color="#57534e" texto="Casa destruida" />
+          <Leyenda color="#9a3412" texto="Casa dañada" />
           <Leyenda color="#4ade80" texto="Parque" />
           <Leyenda color="#b8956a" texto="Vía sin pavimentar" />
           <Leyenda color="#4b5563" texto="Vía pavimentada" />
@@ -213,6 +253,7 @@ export default function EstudioTerreno() {
               pp={pp}
               onPp={setPp}
             />
+                        <PanelSismo s={sismo} anio={anio} hayLotes={!!loteo} />
           </>
         )}
       </div>
@@ -310,22 +351,34 @@ export default function EstudioTerreno() {
               <span className="block text-xs text-slate-500">Los lotes se estiran hasta un 20 % sobre el mínimo.</span>
             </span>
           </label>
+          <label className="mt-3 flex items-start gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={params.proporcionar !== false}
+              onChange={(e) => setParams((p) => ({ ...p, proporcionar: e.target.checked }))}
+            />
+            <span>
+              Lotes proporcionales para sacar más lotes
+              <span className="block text-xs text-slate-500">En terrenos pequeños hace lotes más anchos y menos profundos (hasta 30 % menos fondo) que conservan el área mínima.</span>
+            </span>
+          </label>
 
-          {n >= 3 && (
-            <div className="mt-3">
-              <Campo label="Lado que da a la vía existente (línea azul)">
-                <select className={input} value={ladoSel} onChange={(e) => setP("ladoVia", Number(e.target.value))}>
-                  {puntos.map((_, i) => (
-                    <option key={i} value={i}>
-                      Lado {i + 1} (P{i + 1} → P{((i + 1) % n) + 1})
-                    </option>
-                  ))}
-                </select>
-              </Campo>
-            </div>
-          )}
+            <label className="mt-3 flex items-start gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={params.optimizar !== false}
+              onChange={(e) => setParams((p) => ({ ...p, optimizar: e.target.checked }))}
+            />
+            <span>
+              Buscar la distribución con más lotes
+              <span className="block text-xs text-slate-500">Prueba alinear las filas con cada lado del terreno y elige la mejor.</span>
+            </span>
+          </label>
         </div>
 
+        <CallesExistentes puntos={puntos} params={params} setParams={setParams} loteo={loteo} />
         {loteo && (
           <div className="rounded-xl border bg-white p-5 shadow-sm">
             <h3 className="mb-3 font-semibold text-slate-800">Resultado del loteo</h3>
@@ -334,6 +387,13 @@ export default function EstudioTerreno() {
               <Fila k="Área vendible" v={`${num(loteo.areaVendible)} m²`} />
               <Fila k="Zonas verdes" v={`${num(loteo.areaVerde)} m² (${loteo.nVerdes} lotes)`} />
               <Fila k="Vías y sobrantes" v={`${num(loteo.areaVias)} m²`} />
+              {loteo.ladoFilas !== ladoSel && (
+                <Fila
+                  k="Filas alineadas con"
+                  v={`Lado ${loteo.ladoFilas + 1} (+${loteo.nLotes - loteo.lotesSiParalelaVia} lotes)`}
+                  destacado
+                />
+              )}
               <Fila k="Aprovechamiento" v={`${num(loteo.eficiencia, 1)} %`} destacado />
             </dl>
             {!loteo.cumpleVerde && (

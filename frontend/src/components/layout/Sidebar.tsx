@@ -1,7 +1,8 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Map, Layers, LineChart, GitCompare, FileText, Settings } from "lucide-react";
+import { LayoutDashboard, Map, Layers, Calculator, LineChart, GitCompare, FileText, Settings } from "lucide-react";
+import Logo from "@/components/layout/Logo";
 
 const items = [
   { href: "/", label: "Vista General", icon: LayoutDashboard },
@@ -11,6 +12,7 @@ const items = [
   { href: "/comparador", label: "Comparador", icon: GitCompare },
   { href: "/reportes", label: "Reportes", icon: FileText },
   { href: "/terreno", label: "Estudio de terreno", icon: Map },
+  { href: "/financiero", label: "Análisis financiero", icon: Calculator },
   { href: "/configuracion", label: "Configuración", icon: Settings },
 ];
 
@@ -19,7 +21,10 @@ export default function Sidebar() {
   return (
     <aside className="hidden md:flex w-64 flex-col bg-[#0f1b2d] text-slate-200">
       <div className="px-6 py-5">
-        <h1 className="text-2xl font-bold text-white">TerraSim</h1>
+        <div className="flex items-center gap-3">
+          <Logo size={44} />
+          <h1 className="text-2xl font-bold text-white">TerraSim</h1>
+        </div>
         <p className="text-xs text-slate-400">Simulador de acceso a terrenos</p>
       </div>
       <nav className="flex-1 space-y-1 px-3">
