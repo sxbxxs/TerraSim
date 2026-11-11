@@ -1,16 +1,25 @@
 /// <reference types="google.maps" />
 "use client";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { APIProvider, Map as GoogleMap, useMap } from "@vis.gl/react-google-maps";
 import { CENTRO_AGUACHICA, RADIO_KM, Punto } from "@/lib/geo";
-import type { LoteGen } from "@/lib/lotes";
+import type { EstiloLote } from "@/lib/progreso";
 
 export type Foco = { lat: number; lng: number; zoom: number };
 
-function Capa({
-  foco, puntos, lotes, ladoVia,
-}: { foco: Foco; puntos: Punto[]; lotes: LoteGen[]; ladoVia: number }) {
+type CapaProps = {
+  foco: Foco;
+  puntos: Punto[];
+  lotes: Punto[][];
+  estilos: EstiloLote[];
+  colorBase: string;
+  ladoVia: number;
+};
+
+function Capa({ foco, puntos, lotes, estilos, colorBase, ladoVia }: CapaProps) {
   const map = useMap();
+  const baseRef = useRef<google.maps.Polygon | null>(null);
+  const lotesRef = useRef<google.maps.Polygon[]>([]);
 
   useEffect(() => {
     if (!map) return;
@@ -35,7 +44,7 @@ function Capa({
     return () => c.setMap(null);
   }, [map]);
 
-  // Polígono del terreno y vértices
+  // Terreno y vértices
   useEffect(() => {
     if (!map) return;
     const poly = new google.maps.Polygon({
@@ -43,10 +52,11 @@ function Capa({
       paths: puntos,
       strokeColor: "#facc15",
       strokeWeight: 3,
-      fillColor: "#facc15",
-      fillOpacity: 0.2,
+      fillColor: "#a16207",
+      fillOpacity: 0.45,
       clickable: false,
     });
+    baseRef.current = poly;
     const vertices = puntos.map(
       (p) =>
         new google.maps.Circle({
@@ -63,9 +73,15 @@ function Capa({
     );
     return () => {
       poly.setMap(null);
+      baseRef.current = null;
       vertices.forEach((v) => v.setMap(null));
     };
   }, [map, puntos]);
+
+  // Color del terreno (vía sin pavimentar / pavimentada)
+  useEffect(() => {
+    baseRef.current?.setOptions({ fillColor: colorBase });
+  }, [map, puntos, colorBase]);
 
   // Lado que da a la vía
   useEffect(() => {
@@ -83,37 +99,43 @@ function Capa({
     return () => linea.setMap(null);
   }, [map, puntos, ladoVia]);
 
-  // Lotes y zonas verdes
+  // Geometría de los lotes (solo cuando cambia el loteo)
   useEffect(() => {
     if (!map) return;
     const polys = lotes.map(
-      (l) =>
+      (coords) =>
         new google.maps.Polygon({
           map,
-          paths: l.coords,
+          paths: coords,
           strokeColor: "#ffffff",
           strokeWeight: 1,
-          fillColor: l.tipo === "verde" ? "#22c55e" : "#38bdf8",
-          fillOpacity: 0.55,
+          fillColor: "#e2e8f0",
+          fillOpacity: 0.3,
           clickable: false,
           zIndex: 3,
         })
     );
-    return () => polys.forEach((p) => p.setMap(null));
+    lotesRef.current = polys;
+    return () => {
+      polys.forEach((p) => p.setMap(null));
+      lotesRef.current = [];
+    };
   }, [map, lotes]);
+
+  // Estilo de cada lote según el año (no recrea los polígonos)
+  useEffect(() => {
+    lotesRef.current.forEach((p, i) => {
+      const s = estilos[i];
+      if (s) p.setOptions({ fillColor: s.fill, fillOpacity: s.opacity });
+    });
+  }, [map, lotes, estilos]);
 
   return null;
 }
 
-type Props = {
-  foco: Foco;
-  puntos: Punto[];
-  lotes: LoteGen[];
-  ladoVia: number;
-  onClickMapa: (p: Punto) => void;
-};
+type Props = CapaProps & { onClickMapa: (p: Punto) => void };
 
-export default function MapaSelector({ foco, puntos, lotes, ladoVia, onClickMapa }: Props) {
+export default function MapaSelector({ onClickMapa, ...capa }: Props) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
   if (!apiKey) {
@@ -128,8 +150,8 @@ export default function MapaSelector({ foco, puntos, lotes, ladoVia, onClickMapa
   return (
     <APIProvider apiKey={apiKey}>
       <GoogleMap
-        defaultCenter={{ lat: foco.lat, lng: foco.lng }}
-        defaultZoom={foco.zoom}
+        defaultCenter={{ lat: capa.foco.lat, lng: capa.foco.lng }}
+        defaultZoom={capa.foco.zoom}
         mapTypeId="hybrid"
         gestureHandling="greedy"
         disableDoubleClickZoom
@@ -139,7 +161,7 @@ export default function MapaSelector({ foco, puntos, lotes, ladoVia, onClickMapa
           if (ll) onClickMapa({ lat: ll.lat, lng: ll.lng });
         }}
       >
-        <Capa foco={foco} puntos={puntos} lotes={lotes} ladoVia={ladoVia} />
+        <Capa {...capa} />
       </GoogleMap>
     </APIProvider>
   );

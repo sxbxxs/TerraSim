@@ -2,19 +2,27 @@
 import { useMemo, useState } from "react";
 import { MapPin, Undo2, Trash2, LocateFixed } from "lucide-react";
 import MapaSelector, { Foco } from "@/components/map/MapaSelector";
+import ControlesTimeLapse from "@/components/terreno/ControlesTimeLapse";
+import PanelProgreso from "@/components/terreno/PanelProgreso";
 import {
   CENTRO_AGUACHICA, RADIO_KM, Punto,
   areaM2, perimetroM, dentroDelRadio, parsearCoordenadas, distanciaM,
 } from "@/lib/geo";
 import { poblacionEn, tasaCrecimiento, FUENTE_POBLACION } from "@/data/poblacion";
-import { generarLoteo, ParametrosLoteo, LoteGen } from "@/lib/lotes";
+import { generarLoteo, ParametrosLoteo } from "@/lib/lotes";
+import { Escenario } from "@/types";
+import {
+  simularProgreso, estilosLotes, conteoLotes,
+  HITOS_POR_DEFECTO, PARAMS_PROGRESO, EstiloLote, Hito, ParametrosProgreso,
+} from "@/lib/progreso";
 
 const input =
   "w-full rounded-lg border px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500";
 const num = (n: number, d = 0) =>
   new Intl.NumberFormat("es-CO", { maximumFractionDigits: d }).format(n);
 
-const SIN_LOTES: LoteGen[] = [];
+const SIN_GEOMETRIA: Punto[][] = [];
+const SIN_ESTILOS: EstiloLote[] = [];
 
 const PARAMS_INICIALES: ParametrosLoteo = {
   frente: 6,
@@ -42,12 +50,25 @@ function Fila({ k, v, destacado }: { k: string; v: string; destacado?: boolean }
   );
 }
 
+function Leyenda({ color, texto }: { color: string; texto: string }) {
+  return (
+    <span className="flex items-center gap-1">
+      <span className="h-3 w-3 rounded-sm border" style={{ background: color }} /> {texto}
+    </span>
+  );
+}
+
 export default function EstudioTerreno() {
   const [texto, setTexto] = useState("");
   const [foco, setFoco] = useState<Foco>({ ...CENTRO_AGUACHICA, zoom: 13 });
   const [puntos, setPuntos] = useState<Punto[]>([]);
   const [aviso, setAviso] = useState("");
   const [params, setParams] = useState<ParametrosLoteo>(PARAMS_INICIALES);
+
+  const [anio, setAnio] = useState(0);
+  const [escenario, setEscenario] = useState<Escenario>("base");
+  const [pp, setPp] = useState<ParametrosProgreso>(PARAMS_PROGRESO);
+  const [hitos, setHitos] = useState<Record<Escenario, Hito>>(HITOS_POR_DEFECTO);
 
   const setP = (k: keyof ParametrosLoteo, v: number) =>
     setParams((p) => ({ ...p, [k]: Number.isFinite(v) ? v : 0 }));
@@ -65,6 +86,7 @@ export default function EstudioTerreno() {
     }
     setAviso("");
     setPuntos([]);
+    setAnio(0);
     setFoco({ ...p, zoom: 18 });
   };
 
@@ -78,7 +100,25 @@ export default function EstudioTerreno() {
   };
 
   const loteo = useMemo(() => generarLoteo(puntos, params), [puntos, params]);
-  const lotes = useMemo(() => loteo?.lotes ?? SIN_LOTES, [loteo]);
+  const geometria = useMemo(
+    () => (loteo ? loteo.lotes.map((l) => l.coords) : SIN_GEOMETRIA),
+    [loteo]
+  );
+
+  const series = useMemo(
+    () => ({
+      pesimista: simularProgreso(pp, hitos.pesimista),
+      base: simularProgreso(pp, hitos.base),
+      optimista: simularProgreso(pp, hitos.optimista),
+    }),
+    [pp, hitos]
+  );
+  const estado = series[escenario][anio];
+  const estilos = useMemo(
+    () => (loteo ? estilosLotes(loteo.lotes, estado) : SIN_ESTILOS),
+    [loteo, estado]
+  );
+  const conteo = loteo ? conteoLotes(loteo.lotes, estado) : null;
 
   const area = areaM2(puntos);
   const perimetro = perimetroM(puntos);
@@ -114,18 +154,46 @@ export default function EstudioTerreno() {
           <MapaSelector
             foco={foco}
             puntos={puntos}
-            lotes={lotes}
+            lotes={geometria}
+            estilos={estilos}
+            colorBase={estado.via ? "#64748b" : "#a16207"}
             ladoVia={ladoSel}
             onClickMapa={agregarPunto}
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
           <span>Clic en el mapa para marcar cada esquina (mínimo 3).</span>
-          <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-sm bg-sky-400" /> Lote vendible</span>
-          <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-sm bg-green-500" /> Zona verde</span>
-          <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-sm bg-yellow-400" /> Vías y sobrante</span>
+          <Leyenda color="#e2e8f0" texto="Lote vacío" />
+          <Leyenda color="#fbbf24" texto="En construcción" />
+          <Leyenda color="#ef4444" texto="Casa terminada" />
+          <Leyenda color="#22c55e" texto="Parque" />
+          <Leyenda color="#a16207" texto="Vía sin pavimentar" />
+          <Leyenda color="#64748b" texto="Vía pavimentada" />
         </div>
+
+        {loteo && conteo && (
+          <>
+            <ControlesTimeLapse
+              anio={anio}
+              setAnio={setAnio}
+              max={pp.horizonte}
+              escenario={escenario}
+              setEscenario={setEscenario}
+            />
+            <PanelProgreso
+              series={series}
+              escenario={escenario}
+              anio={anio}
+              areaBruta={loteo.areaBruta}
+              conteo={conteo}
+              hitos={hitos}
+              onHitos={setHitos}
+              pp={pp}
+              onPp={setPp}
+            />
+          </>
+        )}
       </div>
 
       <div className="space-y-4">
@@ -143,7 +211,7 @@ export default function EstudioTerreno() {
               </button>
               <button
                 title="Borrar todo"
-                onClick={() => setPuntos([])}
+                onClick={() => { setPuntos([]); setAnio(0); }}
                 disabled={!puntos.length}
                 className="rounded-lg border p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
               >
