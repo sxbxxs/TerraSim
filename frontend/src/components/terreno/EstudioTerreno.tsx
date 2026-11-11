@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { MapPin, Undo2, Trash2, LocateFixed } from "lucide-react";
+import { MapPin, Undo2, Trash2, LocateFixed, ZoomIn } from "lucide-react";
 import MapaSelector, { Foco } from "@/components/map/MapaSelector";
 import ControlesTimeLapse from "@/components/terreno/ControlesTimeLapse";
 import PanelProgreso from "@/components/terreno/PanelProgreso";
@@ -12,8 +12,8 @@ import { poblacionEn, tasaCrecimiento, FUENTE_POBLACION } from "@/data/poblacion
 import { generarLoteo, ParametrosLoteo } from "@/lib/lotes";
 import { Escenario } from "@/types";
 import {
-  simularProgreso, estilosLotes, conteoLotes,
-  HITOS_POR_DEFECTO, PARAMS_PROGRESO, EstiloLote, Hito, ParametrosProgreso,
+  simularProgreso, etapasLotes, conteoLotes,
+  HITOS_POR_DEFECTO, PARAMS_PROGRESO, EtapaLote, Hito, ParametrosProgreso,
 } from "@/lib/progreso";
 
 const input =
@@ -21,13 +21,13 @@ const input =
 const num = (n: number, d = 0) =>
   new Intl.NumberFormat("es-CO", { maximumFractionDigits: d }).format(n);
 
-const SIN_GEOMETRIA: Punto[][] = [];
-const SIN_ESTILOS: EstiloLote[] = [];
+const SIN_ETAPAS: EtapaLote[] = [];
 
 const PARAMS_INICIALES: ParametrosLoteo = {
   frente: 6,
   fondo: 14,
   anchoVia: 8,
+  anchoViaExistente: 10,
   cesionVerdePct: 10,
   ladoVia: 0,
 };
@@ -99,11 +99,22 @@ export default function EstudioTerreno() {
     setPuntos((prev) => [...prev, p]);
   };
 
+  // Centra el mapa en el terreno con un zoom que lo deje a buen tamaño
+  const acercar = () => {
+    if (puntos.length < 3) return;
+    const lats = puntos.map((q) => q.lat);
+    const lngs = puntos.map((q) => q.lng);
+    const lat = (Math.min(...lats) + Math.max(...lats)) / 2;
+    const lng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+    const cos = Math.cos((lat * Math.PI) / 180);
+    const spanLat = (Math.max(...lats) - Math.min(...lats)) * 111320;
+    const spanLng = (Math.max(...lngs) - Math.min(...lngs)) * 111320 * cos;
+    const span = Math.max(spanLat, spanLng, 30);
+    const zoom = Math.floor(Math.log2((156543.03 * cos * 450) / span));
+    setFoco({ lat, lng, zoom: Math.min(20, Math.max(15, zoom)) });
+  };
+
   const loteo = useMemo(() => generarLoteo(puntos, params), [puntos, params]);
-  const geometria = useMemo(
-    () => (loteo ? loteo.lotes.map((l) => l.coords) : SIN_GEOMETRIA),
-    [loteo]
-  );
 
   const series = useMemo(
     () => ({
@@ -114,11 +125,11 @@ export default function EstudioTerreno() {
     [pp, hitos]
   );
   const estado = series[escenario][anio];
-  const estilos = useMemo(
-    () => (loteo ? estilosLotes(loteo.lotes, estado) : SIN_ESTILOS),
+  const etapas = useMemo(
+    () => (loteo ? etapasLotes(loteo.lotes, estado) : SIN_ETAPAS),
     [loteo, estado]
   );
-  const conteo = loteo ? conteoLotes(loteo.lotes, estado) : null;
+  const conteo = loteo ? conteoLotes(loteo.lotes, etapas) : null;
 
   const area = areaM2(puntos);
   const perimetro = perimetroM(puntos);
@@ -154,9 +165,9 @@ export default function EstudioTerreno() {
           <MapaSelector
             foco={foco}
             puntos={puntos}
-            lotes={geometria}
-            estilos={estilos}
-            colorBase={estado.via ? "#64748b" : "#a16207"}
+            loteo={loteo}
+            etapas={etapas}
+            estado={estado}
             ladoVia={ladoSel}
             onClickMapa={agregarPunto}
           />
@@ -165,11 +176,12 @@ export default function EstudioTerreno() {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
           <span>Clic en el mapa para marcar cada esquina (mínimo 3).</span>
           <Leyenda color="#e2e8f0" texto="Lote vacío" />
-          <Leyenda color="#fbbf24" texto="En construcción" />
-          <Leyenda color="#ef4444" texto="Casa terminada" />
-          <Leyenda color="#22c55e" texto="Parque" />
-          <Leyenda color="#a16207" texto="Vía sin pavimentar" />
-          <Leyenda color="#64748b" texto="Vía pavimentada" />
+          <Leyenda color="#9ca3af" texto="Cimentación" />
+          <Leyenda color="#c2763b" texto="Estructura" />
+          <Leyenda color="#d9573f" texto="Casa terminada" />
+          <Leyenda color="#4ade80" texto="Parque" />
+          <Leyenda color="#b8956a" texto="Vía sin pavimentar" />
+          <Leyenda color="#4b5563" texto="Vía pavimentada" />
         </div>
 
         {loteo && conteo && (
@@ -201,6 +213,14 @@ export default function EstudioTerreno() {
           <div className="mb-3 flex items-center justify-between">
             <h3 className="font-semibold text-slate-800">Terreno dibujado</h3>
             <div className="flex gap-2">
+              <button
+                title="Acercar al terreno"
+                onClick={acercar}
+                disabled={n < 3}
+                className="rounded-lg border p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              >
+                <ZoomIn size={16} />
+              </button>
               <button
                 title="Deshacer último punto"
                 onClick={() => setPuntos((p) => p.slice(0, -1))}
@@ -249,9 +269,13 @@ export default function EstudioTerreno() {
               <input type="number" min={1} step="0.5" className={input} value={params.fondo}
                 onChange={(e) => setP("fondo", Number(e.target.value))} />
             </Campo>
-            <Campo label="Ancho de vía (m)">
+            <Campo label="Ancho de vía interna (m)">
               <input type="number" min={0} step="0.5" className={input} value={params.anchoVia}
                 onChange={(e) => setP("anchoVia", Number(e.target.value))} />
+            </Campo>
+            <Campo label="Ancho de vía existente (m)">
+              <input type="number" min={0} step="0.5" className={input} value={params.anchoViaExistente}
+                onChange={(e) => setP("anchoViaExistente", Number(e.target.value))} />
             </Campo>
             <Campo label="Cesión verde (%)">
               <input type="number" min={0} max={100} step="1" className={input} value={params.cesionVerdePct}

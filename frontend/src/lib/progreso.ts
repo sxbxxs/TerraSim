@@ -84,27 +84,35 @@ export function simularProgreso(p: ParametrosProgreso, h: Hito): EstadoAnio[] {
   return serie;
 }
 
-export type EstiloLote = { fill: string; opacity: number };
+export type EtapaLote = "vacio" | "cimentacion" | "estructura" | "casa";
 
-// Los lotes se construyen en orden: primero los más cercanos a la vía
-export function estilosLotes(lotes: LoteGen[], e: EstadoAnio): EstiloLote[] {
+// Los lotes se construyen en orden (primero los más cercanos a la vía).
+// El lote que va a terminarse está en estructura; los dos siguientes, en cimentación.
+export function etapasLotes(lotes: LoteGen[], e: EstadoAnio): EtapaLote[] {
   const nVend = lotes.filter((l) => l.tipo === "lote").length;
   const construidos = e.ocupacion * nVend;
   let k = 0;
   return lotes.map((l) => {
-    if (l.tipo === "verde") {
-      return e.parque ? { fill: "#22c55e", opacity: 0.7 } : { fill: "#86efac", opacity: 0.2 };
-    }
-    const i = k++;
-    if (construidos >= i + 1) return { fill: "#ef4444", opacity: 0.75 }; // casa terminada
-    if (e.ocupacion > 0.001 && construidos > i - 3) return { fill: "#fbbf24", opacity: 0.75 }; // en construcción
-    return { fill: "#e2e8f0", opacity: 0.3 }; // lote vacío
+    if (l.tipo === "verde") return "vacio";
+    const resta = k + 1 - construidos;
+    k++;
+    if (resta <= 1e-9) return "casa";
+    if (e.ocupacion <= 0.001) return "vacio";
+    if (resta <= 1.2) return "estructura";
+    if (resta <= 3) return "cimentacion";
+    return "vacio";
   });
 }
 
-export function conteoLotes(lotes: LoteGen[], e: EstadoAnio) {
-  const nVend = lotes.filter((l) => l.tipo === "lote").length;
-  const casas = Math.min(nVend, Math.floor(e.ocupacion * nVend + 1e-9));
-  const enConstruccion = e.ocupacion > 0.001 ? Math.min(3, nVend - casas) : 0;
-  return { total: nVend, casas, enConstruccion, vacios: nVend - casas - enConstruccion };
+export function conteoLotes(lotes: LoteGen[], etapas: EtapaLote[]) {
+  let total = 0;
+  let casas = 0;
+  let obra = 0;
+  lotes.forEach((l, i) => {
+    if (l.tipo !== "lote") return;
+    total++;
+    if (etapas[i] === "casa") casas++;
+    else if (etapas[i] !== "vacio") obra++;
+  });
+  return { total, casas, enConstruccion: obra, vacios: total - casas - obra };
 }
