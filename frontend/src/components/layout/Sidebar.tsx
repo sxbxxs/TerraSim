@@ -1,14 +1,16 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Map, Layers, LineChart, FileText, Settings } from "lucide-react";
+import { LayoutDashboard, Map, Layers, LineChart, GitCompare, FileText, Settings } from "lucide-react";
 
 const items = [
   { href: "/", label: "Vista General", icon: LayoutDashboard },
   { href: "/mapa", label: "Mapa", icon: Map },
   { href: "/terrenos", label: "Terrenos", icon: Layers },
   { href: "/simulaciones", label: "Simulaciones", icon: LineChart },
+  { href: "/comparador", label: "Comparador", icon: GitCompare },
   { href: "/reportes", label: "Reportes", icon: FileText },
+  { href: "/terreno", label: "Estudio de terreno", icon: Map },
   { href: "/configuracion", label: "Configuración", icon: Settings },
 ];
 
@@ -38,9 +40,12 @@ export default function Sidebar() {
         })}
       </nav>
       <div className="p-4">
-        <button className="w-full rounded-lg bg-emerald-600 py-3 text-sm font-semibold text-white hover:bg-emerald-500">
+        <Link
+          href="/simulaciones"
+          className="block w-full rounded-lg bg-emerald-600 py-3 text-center text-sm font-semibold text-white hover:bg-emerald-500"
+        >
           Nueva Simulación
-        </button>
+        </Link>
       </div>
     </aside>
   );
