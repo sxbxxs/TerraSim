@@ -2,6 +2,7 @@ import type { Punto } from "@/lib/geo";
 import { areaM2, perimetroM } from "@/lib/geo";
 import type { ParametrosLoteo, ResultadoLoteo } from "@/lib/lotes";
 import type { Candidato } from "@/lib/candidatos";
+import type { DatosInforme } from "@/lib/perfil";
 import { Evaluado, Recomendacion, evaluarTerreno, recomendar } from "@/lib/comparador";
 import { ANIO_BASE, EstadoAnio, Hito, ParametrosProgreso, conteoLotes, etapasLotes } from "@/lib/progreso";
 import {
@@ -38,12 +39,14 @@ export type Entrada = {
   costoConstruccionM2?: number | null;
   sismo: ParametrosSismo;
   candidatos?: Candidato[]; // los terrenos de «Comparar terrenos»
+  datosInforme?: DatosInforme; // proyecto, cliente y quién prepara el informe
   paramsLoteo?: ParametrosLoteo;
   fecha?: Date;
 };
 
 export type DatosReporte = {
   fecha: string;
+  datosInforme: DatosInforme | null;
   escenario: Escenario;
   anio: number;
   anioCalendario: number;
@@ -219,7 +222,7 @@ export function armarReporte(e: Entrada): DatosReporte {
   const fecha = (e.fecha ?? new Date()).toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" });
 
   return {
-    fecha, escenario, anio, anioCalendario: ANIO_BASE + anio,
+     fecha, datosInforme: e.datosInforme ?? null, escenario, anio, anioCalendario: ANIO_BASE + anio,
     terreno: { areaM2: area, hectareas: area / 10000, perimetroM: perimetroM(e.puntos), vertices: e.puntos.length, distanciaCentroKm: distanciaCentroKm({ lat, lng }) },
     loteo: {
       nLotes: loteo.nLotes, nVerdes: loteo.nVerdes, nManzanas: loteo.nManzanas, areaVendible: loteo.areaVendible,

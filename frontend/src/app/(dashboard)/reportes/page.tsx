@@ -7,6 +7,8 @@ import { useEstudio } from "@/lib/estudio-contexto";
 import { useFinanzasGuardadas } from "@/lib/finanzas-guardadas";
 import { armarReporte } from "@/lib/reporte";
 import { PARAMS_SISMO } from "@/lib/sismo";
+import { leerSismoGuardado } from "@/lib/sismo-guardado";
+import { DATOS_INFORME_VACIOS, leerDatosInforme } from "@/lib/perfil";
 import { Candidato, leerCandidatosGuardados } from "@/lib/candidatos";
 import { Comparable, leerComparablesGuardados, leerCostoConstruccionM2 } from "@/lib/ubicacion";
 
@@ -16,19 +18,23 @@ export default function Reportes() {
   const [comparables, setComparables] = useState<Comparable[]>([]);
   const [costoM2, setCostoM2] = useState<number | null>(null);
   const [candidatos, setCandidatos] = useState<Candidato[]>([]);
+  const [sismo, setSismo] = useState(PARAMS_SISMO);
+  const [datosInforme, setDatosInforme] = useState(DATOS_INFORME_VACIOS);
 
   useEffect(() => {
     setComparables(leerComparablesGuardados());
     setCostoM2(leerCostoConstruccionM2());
     setCandidatos(leerCandidatosGuardados());
+    setSismo(leerSismoGuardado());
+    setDatosInforme(leerDatosInforme());
   }, []);
 
   const datos = useMemo(
     () =>
       loteo
-        ? armarReporte({ puntos, loteo, series, pp, hitos, escenario, anio, fin, comparables, costoConstruccionM2: costoM2, sismo: PARAMS_SISMO, candidatos, paramsLoteo: params })
+        ? armarReporte({ puntos, loteo, series, pp, hitos, escenario, anio, fin, comparables, costoConstruccionM2: costoM2, sismo, candidatos, paramsLoteo: params, datosInforme })
         : null,
-    [loteo, puntos, series, pp, hitos, escenario, anio, fin, comparables, costoM2, candidatos, params]
+    [loteo, puntos, series, pp, hitos, escenario, anio, fin, comparables, costoM2, sismo, candidatos, params, datosInforme]
   );
 
   // El nombre sugerido del PDF es el título de la página

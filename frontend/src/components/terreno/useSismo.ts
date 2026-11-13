@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ResultadoLoteo } from "@/lib/lotes";
 import type { Escenario } from "@/types";
 import { EstadoAnio, EtapaLote, ParametrosProgreso, etapasLotes } from "@/lib/progreso";
@@ -10,6 +10,7 @@ import {
   evaluarSismo, generarGrietas, muestrearDanos, probabilidadesCasa,
 } from "@/lib/sismo";
 import type { Punto } from "@/lib/geo";
+import { guardarSismo, leerSismoGuardado } from "@/lib/sismo-guardado";
 
 export type EventoSismo = { anio: number; pga: number; semilla: number; nombre: string };
 
@@ -47,6 +48,16 @@ const semillaNueva = () => Math.floor(Math.random() * 1_000_000);
 export function useSismo({ loteo, series, escenario, anio, pp, fin, anchoCalle }: Entrada): EstadoSismo {
   const [params, setParamsEstado] = useState<ParametrosSismo>(PARAMS_SISMO);
   const [evento, setEvento] = useState<EventoSismo | null>(null);
+
+  // los supuestos del sismo se guardan, y son los mismos que usan Configuración y el informe
+  const [paramsListos, setParamsListos] = useState(false);
+  useEffect(() => {
+    setParamsEstado(leerSismoGuardado());
+    setParamsListos(true);
+  }, []);
+  useEffect(() => {
+    if (paramsListos) guardarSismo(params);
+  }, [paramsListos, params]);  
 
   const calculo = useMemo(() => {
     if (!evento || !loteo) return null;

@@ -1,12 +1,6 @@
-import { Settings } from "lucide-react";
-import PaginaBase from "@/components/layout/PaginaBase";
+"use client";
+import Configuracion from "@/components/configuracion/Configuracion";
 
-export default function Configuracion() {
-  return (
-    <PaginaBase
-      titulo="Configuración"
-      descripcion="Aquí se ajustarán los parámetros globales del modelo, el perfil de usuario y las preferencias."
-      icon={Settings}
-    />
-  );
+export default function PaginaConfiguracion() {
+  return <Configuracion />;
 }

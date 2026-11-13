@@ -112,7 +112,7 @@ type Props = {
   onImprimir?: () => void;
 };
 
-function Encabezado({ d, titulo }: { d: DatosReporte; titulo: string }) {
+function Encabezado({ d, titulo, detalle }: { d: DatosReporte; titulo: string; detalle?: boolean }) {
   return (
     <div className="rp-enc">
       <div className="rp-marca">
@@ -124,6 +124,9 @@ function Encabezado({ d, titulo }: { d: DatosReporte; titulo: string }) {
         </div>
       </div>
       <div className="rp-der">
+        {detalle && d.datosInforme?.proyecto && <div style={{ fontWeight: 600, color: "#0f172a" }}>{d.datosInforme.proyecto}</div>}
+        {detalle && d.datosInforme?.organizacion && <div>Para: {d.datosInforme.organizacion}</div>}
+        {detalle && d.datosInforme?.analista && <div>Preparó: {d.datosInforme.analista}</div>}
         <div>{d.fecha}</div>
         <div>Aguachica, Cesar</div>
       </div>
@@ -151,7 +154,7 @@ export default function Reporte({ datos: d, pp, paramsLoteo, plano, onImprimir }
 
       {/* ---------- Hoja 1: resumen y plano ---------- */}
       <section className="rp-hoja">
-        <Encabezado d={d} titulo="Informe de prefactibilidad de terreno" />
+        <Encabezado d={d} titulo="Informe de prefactibilidad de terreno" detalle />
         <div className="rp-titulo">Estudio de terreno de {num(d.terreno.hectareas, 2)} ha ({num(d.terreno.areaM2)} m²)</div>
         <div className="rp-kpis">
           <div className="rp-kpi"><span>Lotes vendibles</span><b>{num(d.loteo.nLotes)}</b></div>
@@ -373,7 +376,7 @@ export default function Reporte({ datos: d, pp, paramsLoteo, plano, onImprimir }
           </div>
         </section>
       )}
-      
+
       {/* ---------- Hoja 4: riesgo sísmico, supuestos y fuentes ---------- */}
       <section className="rp-hoja">
         <Encabezado d={d} titulo="Riesgo sísmico, supuestos y fuentes" />
